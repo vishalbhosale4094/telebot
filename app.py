@@ -14,7 +14,7 @@ TOKEN = "7843180063:AAFZFcKj-3QgxqQ_e97yKxfETK6CfCZ7ans"
 RENDER_API_URL = "https://medical-ai-chatbot-9nsp.onrender.com"
 WEBHOOK_URL = "https://telebot-5i34.onrender.com"
 
-r = requests.get(f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={WEBHOOK_URL}")
+r = requests.get(f"https://api.telegram.org/bot{7843180063:AAFZFcKj-3QgxqQ_e97yKxfETK6CfCZ7ans}/setWebhook?url={https://telebot-5i34.onrender.com}")
 print(r.json())
 
 
