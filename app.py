@@ -25,23 +25,38 @@ app = Flask(__name__)
 user_histories = {}
 telegram_app = None
 
+
 def create_telegram_app():
     return Application.builder().token(TOKEN).build()
+
 
 def test_api_connection():
     try:
         res = requests.post(RENDER_API_URL, json={"message": "test", "history": []}, timeout=10)
+        logger.info(f"API test response: {res.status_code}")
         return res.status_code == 200
-    except:
+    except Exception as e:
+        logger.error(f"API connection test failed: {e}")
         return False
 
+
 async def start_command(update: Update, context):
-    user_id = update.effective_user.id
-    user_histories[user_id] = []
-    await update.message.reply_text("👋 Welcome to MedAssist! Please describe your symptoms.")
+    try:
+        user_id = update.effective_user.id
+        user_histories[user_id] = []
+        logger.info(f"Start command received from user {user_id}")
+        await update.message.reply_text("👋 Welcome to MedAssist! Please describe your symptoms.")
+    except Exception as e:
+        logger.error(f"Error in start command: {e}")
+
 
 async def test_command(update: Update, context):
-    await update.message.reply_text("✅ Bot is working! Webhook is receiving messages.")
+    try:
+        logger.info("Test command received")
+        await update.message.reply_text("✅ Bot is working! Webhook is receiving messages.")
+    except Exception as e:
+        logger.error(f"Error in test command: {e}")
+
 
 async def handle_message(update: Update, context):
     try:
@@ -49,16 +64,23 @@ async def handle_message(update: Update, context):
         message = update.message.text
         history = user_histories.get(user_id, [])
 
+        logger.info(f"Message received from user {user_id}: {message}")
+
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
         payload = {"message": message, "history": history}
+        logger.info(f"Sending payload to API: {payload}")
+
         response = requests.post(RENDER_API_URL, json=payload, timeout=30)
+        logger.info(f"API response status: {response.status_code}")
 
         if response.status_code != 200:
+            logger.error(f"API error: {response.status_code} - {response.text}")
             await update.message.reply_text("⚠️ API Error. Please try again.")
             return
 
         data = response.json()
+        logger.info(f"API response data: {data}")
         response_text = data.get('response', 'No response')
 
         # Build reply
@@ -96,9 +118,13 @@ async def handle_message(update: Update, context):
                 logger.warning(f"🖼️ Failed to send image: {e}")
 
     except Exception as e:
-        logger.error(f"❌ Error: {e}")
+        logger.error(f"❌ Error in handle_message: {e}")
         logger.error(traceback.format_exc())
-        await update.message.reply_text("⚠️ Something went wrong. Please try again.")
+        try:
+            await update.message.reply_text("⚠️ Something went wrong. Please try again.")
+        except:
+            logger.error("Failed to send error message to user")
+
 
 async def handle_button(update: Update, context):
     try:
@@ -108,6 +134,8 @@ async def handle_button(update: Update, context):
         user_id = query.from_user.id
         message = query.data
         history = user_histories.get(user_id, [])
+
+        logger.info(f"Button pressed by user {user_id}: {message}")
 
         await context.bot.send_chat_action(chat_id=query.message.chat_id, action="typing")
 
@@ -156,7 +184,12 @@ async def handle_button(update: Update, context):
 
     except Exception as e:
         logger.error(f"❌ Error in button handler: {e}")
-        await query.message.reply_text("⚠️ Something went wrong. Please try again.")
+        logger.error(traceback.format_exc())
+        try:
+            await query.message.reply_text("⚠️ Something went wrong. Please try again.")
+        except:
+            logger.error("Failed to send error message to user")
+
 
 @app.route('/')
 def home():
@@ -166,6 +199,7 @@ def home():
         "webhook_url": WEBHOOK_URL
     })
 
+
 @app.route('/health')
 def health_check():
     return jsonify({
@@ -173,6 +207,7 @@ def health_check():
         "api_connection": "✅ connected" if test_api_connection() else "❌ disconnected",
         "timestamp": datetime.now().isoformat()
     })
+
 
 @app.route('/debug-api')
 def debug_api():
@@ -187,30 +222,38 @@ def debug_api():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     try:
+        logger.info("Webhook received")
         json_data = request.get_json(force=True)
         if not json_data:
+            logger.warning("No JSON data received")
             return "ok"
 
+        logger.info(f"Webhook data: {json_data}")
         update = Update.de_json(json_data, telegram_app.bot)
 
         def process():
             try:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
+                logger.info("Processing update")
                 loop.run_until_complete(telegram_app.process_update(update))
                 loop.close()
             except Exception as e:
                 logger.error(f"❌ Error processing update: {e}")
+                logger.error(traceback.format_exc())
 
         Thread(target=process).start()
         return "ok"
 
     except Exception as e:
         logger.error(f"❌ Webhook error: {e}")
+        logger.error(traceback.format_exc())
         return "error", 500
+
 
 async def setup_bot():
     global telegram_app
@@ -222,10 +265,19 @@ async def setup_bot():
     telegram_app.add_handler(CallbackQueryHandler(handle_button))
 
     await telegram_app.initialize()
+
+    # Delete any existing webhook
+    logger.info("Deleting existing webhook...")
     await telegram_app.bot.delete_webhook()
-    await telegram_app.bot.set_webhook(WEBHOOK_URL)
+
+    # Set new webhook
+    logger.info(f"Setting webhook to: {WEBHOOK_URL}")
+    webhook_info = await telegram_app.bot.set_webhook(WEBHOOK_URL)
+    logger.info(f"Webhook set successfully: {webhook_info}")
+
     await telegram_app.start()
     logger.info("✅ Telegram bot is running.")
+
 
 def main():
     async def runner():
@@ -234,15 +286,23 @@ def main():
         # Start Flask in background thread (non-blocking)
         def run_flask():
             logger.info(f"🌐 Starting Flask server on port {PORT}")
-            app.run(host="0.0.0.0", port=PORT, use_reloader=False)
+            app.run(host="0.0.0.0", port=PORT, use_reloader=False, debug=False)
 
-        flask_thread = Thread(target=run_flask)
+        flask_thread = Thread(target=run_flask, daemon=True)
         flask_thread.start()
+
+        # Keep the main thread alive
+        while True:
+            await asyncio.sleep(1)
 
     try:
         asyncio.run(runner())
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
     except Exception as e:
         logger.error(f"❌ Fatal error: {e}")
+        logger.error(traceback.format_exc())
+
 
 if __name__ == '__main__':
     main()
