@@ -14,7 +14,7 @@ TOKEN = "7843180063:AAFZFcKj-3QgxqQ_e97yKxfETK6CfCZ7ans"
 RENDER_API_URL = "https://medical-ai-chatbot-9nsp.onrender.com"
 WEBHOOK_URL = "https://telebot-5i34.onrender.com"
 
-r = requests.get(f"https://api.telegram.org/bot{7843180063:AAFZFcKj-3QgxqQ_e97yKxfETK6CfCZ7ans}/setWebhook?url={https://telebot-5i34.onrender.com}")
+r = requests.get(f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={WEBHOOK_URL}")
 print(r.json())
 
 
@@ -109,16 +109,12 @@ async def main():
     await telegram_app.bot.set_webhook(WEBHOOK_URL)
     await telegram_app.start()
 
-    # Run Flask app in async-friendly way
+    # Run Flask in background
     from threading import Thread
     Thread(target=lambda: app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))).start()
 
-    # 💤 Keep running forever
-    await telegram_app.updater.start_webhook(
-        listen="0.0.0.0",
-        port=int(os.environ.get("PORT", 5000)),
-        webhook_url=WEBHOOK_URL
-    )
+    # Run bot until manually stopped
+    await telegram_app.updater.start_polling()  # << NOT start_webhook
 
 
 if __name__ == '__main__':
