@@ -18,9 +18,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configuration
-TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7843180063:AAFZFcKj-3QgxqQ_e97yKxfETK6CfCZ7ans")
-RENDER_API_URL = "https://medical-ai-chatbot-9nsp.onrender.com/chat"
-WEBHOOK_URL = "https://telebot-5i34.onrender.com/webhook"
+TOKEN = os.environ.get("7843180063:AAFZFcKj-3QgxqQ_e97yKxfETK6CfCZ7ans", "7843180063:AAFZFcKj-3QgxqQ_e97yKxfETK6CfCZ7ans")
+RENDER_API_URL = "https://medical-ai-chatbot-9nsp.onrender.com"
+WEBHOOK_URL = "https://telebot-5i34.onrender.com"
 PORT = int(os.environ.get("PORT", 5000))
 
 # Global variables
