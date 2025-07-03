@@ -89,10 +89,14 @@ telegram_app.add_handler(CallbackQueryHandler(handle_button))
 def home():
     return "✅ MedAssist Webhook Server is Live"
 
+
+
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     update = Update.de_json(request.get_json(force=True), telegram_app.bot)
-    asyncio.create_task(telegram_app.process_update(update))
+    loop = asyncio.get_event_loop()
+    asyncio.run_coroutine_threadsafe(telegram_app.process_update(update), loop)
     return "ok"
 
 # Main async runner
