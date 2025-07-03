@@ -12,8 +12,8 @@ from threading import Thread
 
 # Telegram token and backend URLs
 TOKEN = "7843180063:AAFZFcKj-3QgxqQ_e97yKxfETK6CfCZ7ans"
-RENDER_API_URL = "https://medical-ai-chatbot-9nsp.onrender.com/chat"
-WEBHOOK_URL = "https://telebot-5i34.onrender.com/webhook"
+RENDER_API_URL = "https://medical-ai-chatbot-9nsp.onrender.com"
+WEBHOOK_URL = "https://telebot-5i34.onrender.com"
 
 # Flask + Telegram setup
 app = Flask(__name__)
