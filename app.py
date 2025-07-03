@@ -93,18 +93,13 @@ def home():
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    try:
-        data = request.get_json(force=True)
-        print("✅ Webhook triggered with data:", data)
+    data = request.get_json(force=True)
+    print("📨 Webhook data received:", data)
 
-        update = Update.de_json(data, telegram_app.bot)
+    update = Update.de_json(data, telegram_app.bot)
+    asyncio.get_event_loop().create_task(telegram_app.process_update(update))
+    return "ok"
 
-        # Use async to call the telegram_app handler
-        asyncio.get_event_loop().create_task(telegram_app.process_update(update))
-        return "ok"
-    except Exception as e:
-        print("❌ Error in /webhook:", e)
-        return "error", 500
 
 
 # 🧠 Main Async Runner
