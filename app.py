@@ -10,16 +10,21 @@ from telegram.ext import (
 )
 import httpx
 
-#ok
-# Initialize Flask
+# Enable detailed logging
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
+
+# Initialize Flask app
 flask_app = Flask(__name__)
 
-# ✅ Root route to avoid 'Not Found'
+# Simple health check endpoint
 @flask_app.route('/', methods=['GET'])
 def index():
     return "✅ MedAssist Backend is Running!"
 
-# ✅ POST route for /chat endpoint
+# Example chatbot endpoint
 @flask_app.route('/chat', methods=['POST'])
 def handle_chat():
     data = request.get_json()
@@ -33,23 +38,22 @@ def handle_chat():
         "needs_follow_up": True,
         "follow_up_options": ["Forehead", "Back of Head", "All Over"],
         "Disclaimer": "I am an AI assistant, not a real doctor.",
-        "image_urls": ["https://www.example.com/sample.jpg"]  # Replace with real image URLs
+        "image_urls": ["https://www.example.com/sample.jpg"]
     })
 
-# Your Telegram Bot Token
-BOT_TOKEN = '7843180063:AAFZFcKj-3QgxqQ_e97yKxfETK6CfCZ7ans'  # <-- Replace with your actual bot token
+# Telegram bot token and Render API URL
+BOT_TOKEN = '7843180063:AAFZFcKj-3QgxqQ_e97yKxfETK6CfCZ7ans'
 RENDER_API_URL = "https://medical-ai-chatbot-9nsp.onrender.com/chat"
 
-# In-memory user session history
+# In-memory user session tracking
 user_histories = {}
 
-# /start command
+# Telegram handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_histories[user_id] = []
     await update.message.reply_text("👋 Welcome to MedAssist! Please describe your symptom.")
 
-# Handle normal messages
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
@@ -57,115 +61,110 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     payload = {"message": text, "history": history}
 
     try:
-        logging.info(f"Sending payload: {payload}")
         async with httpx.AsyncClient() as client:
             response = await client.post(RENDER_API_URL, json=payload, timeout=20)
-        logging.info(f"Received status: {response.status_code}, body: {response.text}")
         data = response.json()
-        # ✅ Build formatted response
-        reply_text = f"🧠 {data.get('response', '')}\n\n"
-        if data.get("Symptoms") and data["Symptoms"] != ".":
-            reply_text += f"🩺 Symptoms:\n{data['Symptoms']}\n\n"
-        if data.get("Remedies"):
-            reply_text += f"💊 Remedies:\n{data['Remedies']}\n\n"
-        if data.get("Precautions"):
-            reply_text += f"⚠️ Precautions:\n{data['Precautions']}\n\n"
-        if data.get("Guidelines"):
-            reply_text += f"📘 Guidelines:\n{data['Guidelines']}\n\n"
-        if data.get("medication"):
-            reply_text += f"💊 Medication: {', '.join(data['medication'])}\n\n"
-        if data.get("Disclaimer"):
-            reply_text += f"🧾 Disclaimer:\n{data['Disclaimer']}\n\n"
 
-        # ✅ Update history
-        history.append({"role": "user", "parts": [text]})
-        history.append({"role": "model", "parts": [data['response']]})
+        reply = f"🧠 {data.get('response', '')}\n\n"
+        if data.get("Symptoms") and data["Symptoms"] != ".":
+            reply += f"🩺 Symptoms: {data['Symptoms']}\n\n"
+        if data.get("Remedies"):
+            reply += f"💊 Remedies: {data['Remedies']}\n\n"
+        if data.get("Precautions"):
+            reply += f"⚠️ Precautions: {data['Precautions']}\n\n"
+        if data.get("Guidelines"):
+            reply += f"📘 Guidelines: {data['Guidelines']}\n\n"
+        if data.get("medication"):
+            reply += f"💊 Medication: {', '.join(data['medication'])}\n\n"
+        if data.get("Disclaimer"):
+            reply += f"🧾 Disclaimer: {data['Disclaimer']}\n\n"
+
+        history.extend([
+            {"role": "user", "parts": [text]},
+            {"role": "model", "parts": [data['response']]}
+        ])
         user_histories[user_id] = history
 
-        # ✅ Show follow-up buttons if needed
         if data.get("needs_follow_up") and data.get("follow_up_options"):
             keyboard = [
                 [InlineKeyboardButton(opt, callback_data=opt)]
                 for opt in data["follow_up_options"]
             ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(reply_text, reply_markup=reply_markup)
+            markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(reply, reply_markup=markup)
         else:
-            await update.message.reply_text(reply_text)
+            await update.message.reply_text(reply)
 
-        # ✅ Send images if available
         if "image_urls" in data:
             for url in data["image_urls"]:
                 await update.message.reply_photo(url)
 
-    except httpx.RequestError as e:
-        logging.error(f"HTTPX RequestError in handle_message: {e}")
-        await update.message.reply_text("⚠️ Error: Unable to reach backend. Please try again later.")
     except Exception as e:
         logging.error(f"Error in handle_message: {e}")
-        await update.message.reply_text("⚠️ Error: Unable to process. Please try again later.")
+        await update.message.reply_text("⚠️ Failed to process your message. Please try again.")
 
-# Handle button clicks
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    history = user_histories.get(user_id, [])
     query_text = query.data
+    history = user_histories.get(user_id, [])
     payload = {"message": query_text, "history": history}
+
     try:
-        logging.info(f"Sending payload (button): {payload}")
         async with httpx.AsyncClient() as client:
             response = await client.post(RENDER_API_URL, json=payload, timeout=20)
-        logging.info(f"Received status: {response.status_code}, body: {response.text}")
         data = response.json()
-        reply_text = f"🧠 {data.get('response', '')}\n\n"
+
+        reply = f"🧠 {data.get('response', '')}\n\n"
         if data.get("Symptoms") and data["Symptoms"] != ".":
-            reply_text += f"🩺 Symptoms:\n{data['Symptoms']}\n\n"
+            reply += f"🩺 Symptoms: {data['Symptoms']}\n\n"
         if data.get("Remedies"):
-            reply_text += f"💊 Remedies:\n{data['Remedies']}\n\n"
+            reply += f"💊 Remedies: {data['Remedies']}\n\n"
         if data.get("Precautions"):
-            reply_text += f"⚠️ Precautions:\n{data['Precautions']}\n\n"
+            reply += f"⚠️ Precautions: {data['Precautions']}\n\n"
         if data.get("Guidelines"):
-            reply_text += f"📘 Guidelines:\n{data['Guidelines']}\n\n"
+            reply += f"📘 Guidelines: {data['Guidelines']}\n\n"
         if data.get("medication"):
-            reply_text += f"💊 Medication: {', '.join(data['medication'])}\n\n"
+            reply += f"💊 Medication: {', '.join(data['medication'])}\n\n"
         if data.get("Disclaimer"):
-            reply_text += f"🧾 Disclaimer:\n{data['Disclaimer']}\n\n"
-        # Update history
-        history.append({"role": "user", "parts": [query_text]})
-        history.append({"role": "model", "parts": [data['response']]})
+            reply += f"🧾 Disclaimer: {data['Disclaimer']}\n\n"
+
+        history.extend([
+            {"role": "user", "parts": [query_text]},
+            {"role": "model", "parts": [data['response']]}
+        ])
         user_histories[user_id] = history
-        # Show follow-up buttons if needed
+
         if data.get("needs_follow_up") and data.get("follow_up_options"):
             keyboard = [
                 [InlineKeyboardButton(opt, callback_data=opt)]
                 for opt in data["follow_up_options"]
             ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.message.reply_text(reply_text, reply_markup=reply_markup)
+            markup = InlineKeyboardMarkup(keyboard)
+            await query.message.reply_text(reply, reply_markup=markup)
         else:
-            await query.message.reply_text(reply_text)
-        # Send images if available
+            await query.message.reply_text(reply)
+
         if "image_urls" in data:
             for url in data["image_urls"]:
                 await query.message.reply_photo(url)
-    except httpx.RequestError as e:
-        logging.error(f"HTTPX RequestError in handle_button: {e}")
-        await query.message.reply_text("⚠️ Error: Unable to reach backend. Please try again later.")
+
     except Exception as e:
         logging.error(f"Error in handle_button: {e}")
-        await query.message.reply_text("⚠️ Error: Unable to process. Please try again later.")
+        await query.message.reply_text("⚠️ Failed to process your follow-up. Please try again.")
 
-# Telegram bot thread
+# Telegram bot worker
 def run_telegram_bot():
+    print("🚀 Starting Telegram bot thread...")
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(handle_button))
     app.run_polling()
 
-# Start Flask and Telegram in parallel
+# Main launcher
 if __name__ == '__main__':
     threading.Thread(target=run_telegram_bot).start()
+    print("🌐 Starting Flask server...")
     flask_app.run(host='0.0.0.0', port=5000)
