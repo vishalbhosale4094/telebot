@@ -6,6 +6,7 @@ from telegram.ext import (
 )
 import requests
 import os
+import asyncio
 
 TOKEN = "7843180063:AAFZFcKj-3QgxqQ_e97yKxfETK6CfCZ7ans"
 RENDER_API_URL = "https://medical-ai-chatbot-9nsp.onrender.com"
@@ -98,14 +99,15 @@ def webhook():
     telegram_app.update_queue.put(update)
     return "ok"
 
-# ✅ Webhook setup (via manual call on server start)
-def setup_webhook():
-    telegram_app.bot.delete_webhook()
-    telegram_app.bot.set_webhook(WEBHOOK_URL)
+  # Add at the top if not already
 
-# ✅ Main app start
+async def setup_webhook():
+    await telegram_app.bot.delete_webhook()
+    await telegram_app.bot.set_webhook(WEBHOOK_URL)
+
+
 if __name__ == '__main__':
-    setup_webhook()
+    asyncio.run(setup_webhook())  # <- await this properly
     telegram_app.run_webhook(
         listen="0.0.0.0",
         port=int(os.environ.get('PORT', 5000)),
