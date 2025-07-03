@@ -9,7 +9,7 @@ BOT_TOKEN = "7843180063:AAFZFcKj-3QgxqQ_e97yKxfETK6CfCZ7ans"
 bot = telegram.Bot(token=BOT_TOKEN)
 
 # Your deployed backend chatbot endpoint
-WEBSITE_BACKEND_URL = "https://medical-ai-chatbot-9nsp.onrender.com/webhook"
+WEBSITE_BACKEND_URL = "https://medical-ai-chatbot-9nsp.onrender.com/"
 
 @app.route("/")
 def home():
