@@ -6,41 +6,38 @@ from telegram.ext import (
 )
 import requests
 import os
+import nest_asyncio
 import asyncio
 
+# 🔐 Bot Token and URLs
 TOKEN = "7843180063:AAFZFcKj-3QgxqQ_e97yKxfETK6CfCZ7ans"
-RENDER_API_URL = "https://medical-ai-chatbot-9nsp.onrender.com"
-WEBHOOK_URL = "https://telebot-5i34.onrender.com"
+RENDER_API_URL = "https://medical-ai-chatbot-9nsp.onrender.com/chat"
+WEBHOOK_URL = "https://telebot-5i34.onrender.com/webhook"
 
+# 🔧 Setup
+nest_asyncio.apply()
 app = Flask(__name__)
 user_histories = {}
-
 telegram_app = Application.builder().token(TOKEN).build()
 
-# ✅ Telegram command: /start
+# 🎯 /start Command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_histories[user_id] = []
     await update.message.reply_text("👋 Welcome to MedAssist! Please describe your symptoms.")
 
-# ✅ Handle user messages
+# 📩 Handle Message
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     message = update.message.text
     history = user_histories.get(user_id, [])
 
-    payload = {
-        "message": message,
-        "history": history
-    }
-
+    payload = {"message": message, "history": history}
     try:
         res = requests.post(RENDER_API_URL, json=payload)
         data = res.json()
 
-        # 🔄 Build reply message
         text = f"🧠 {data.get('response', '')}\n\n"
-
         if data.get("Symptoms") and data['Symptoms'] != ".":
             text += f"🩺 *Symptoms:* {data['Symptoms']}\n\n"
         if data.get("Remedies"):
@@ -54,12 +51,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if data.get("Disclaimer"):
             text += f"🧾 *Disclaimer:*\n{data['Disclaimer']}"
 
-        # 🔁 Save history
         history.append({"role": "user", "parts": [message]})
         history.append({"role": "model", "parts": [data["response"]]})
         user_histories[user_id] = history
 
-        # ⏭️ Follow-up options
         if data.get("needs_follow_up") and data.get("follow_up_options"):
             keyboard = [[InlineKeyboardButton(opt, callback_data=opt)] for opt in data["follow_up_options"]]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -67,7 +62,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(text, parse_mode="Markdown")
 
-        # 🖼 Send any images
         if "image_urls" in data:
             for url in data["image_urls"]:
                 await update.message.reply_photo(url)
@@ -75,7 +69,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text("⚠️ Sorry, something went wrong. Please try again.")
 
-# ✅ Handle button clicks
+# 🔘 Handle Button Callback
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -83,12 +77,12 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     update.message.text = query.data
     await handle_message(update, context)
 
-# ✅ Register all handlers
+# ⏯️ Register Handlers
 telegram_app.add_handler(CommandHandler("start", start))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 telegram_app.add_handler(CallbackQueryHandler(handle_button))
 
-# ✅ Flask routes
+# 🌐 Flask Webhook Routes
 @app.route('/')
 def home():
     return "✅ MedAssist Bot Server Running (Webhook Mode)"
@@ -99,17 +93,24 @@ def webhook():
     telegram_app.update_queue.put(update)
     return "ok"
 
-  # Add at the top if not already
-
-async def setup_webhook():
+# 🧠 Main Async Runner
+async def main():
+    await telegram_app.initialize()
     await telegram_app.bot.delete_webhook()
     await telegram_app.bot.set_webhook(WEBHOOK_URL)
+    await telegram_app.start()
+
+    # Run Flask app in async-friendly way
+    from threading import Thread
+    Thread(target=lambda: app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))).start()
+
+    # 💤 Keep running forever
+    await telegram_app.updater.start_webhook(
+        listen="0.0.0.0",
+        port=int(os.environ.get("PORT", 5000)),
+        webhook_url=WEBHOOK_URL
+    )
 
 
 if __name__ == '__main__':
-    asyncio.run(setup_webhook())  # <- await this properly
-    telegram_app.run_webhook(
-        listen="0.0.0.0",
-        port=int(os.environ.get('PORT', 5000)),
-        webhook_url=WEBHOOK_URL
-    )
+    asyncio.run(main())

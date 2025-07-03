@@ -1,4 +1,5 @@
 Flask==2.2.5
 requests
 python-telegram-bot[webhooks]==20.3
+nest_asyncio
 gunicorn
