@@ -1,5 +1,6 @@
-flask
-requests
-nest_asyncio
-python-telegram-bot[asyncio]
-gunicorn
+Flask==2.3.3
+python-telegram-bot==20.7
+requests==2.31.0
+nest-asyncio==1.5.8
+Werkzeug==2.3.7
+gunicorn==21.2.0
