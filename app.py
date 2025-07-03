@@ -43,25 +43,6 @@ def telegram_webhook():
 
     return jsonify({"status": "ok"})
 
-# bew
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    data = request.get_json()
-    user_message = data.get("message", "").lower()
-
-    # 🔍 Simple logic — you can plug in GPT, symptom checker, etc.
-    if "fever" in user_message:
-        reply = "🌡️ Fever can be a symptom of various infections. Please stay hydrated and consult a doctor if it persists."
-    elif "headache" in user_message:
-        reply = "🤕 Headaches may occur due to stress, dehydration, or other causes. Consider resting and drinking water."
-    elif "covid" in user_message:
-        reply = "🦠 COVID-19 symptoms include fever, cough, fatigue, and loss of taste or smell. Get tested if you suspect exposure."
-    elif user_message in ["/start", "hi", "hello"]:
-        reply = "👋 Hello! I’m your Medical Assistant. Ask me about symptoms like fever, headache, cough, etc."
-    else:
-        reply = "🤖 I'm not sure about that. Try asking about fever, headache, covid symptoms, or type /start."
-
-    return jsonify({"reply": reply})
 # ✅ This part was missing in your code — needed to run the Flask server
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=5000)
