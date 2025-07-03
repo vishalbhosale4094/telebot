@@ -18,9 +18,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configuration
-TOKEN = os.environ.get("7843180063:AAFZFcKj-3QgxqQ_e97yKxfETK6CfCZ7ans", "7843180063:AAFZFcKj-3QgxqQ_e97yKxfETK6CfCZ7ans")
-RENDER_API_URL = "https://medical-ai-chatbot-9nsp.onrender.com"
-WEBHOOK_URL = "https://telebot-5i34.onrender.com"
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7843180063:AAFZFcKj-3QgxqQ_e97yKxfETK6CfCZ7ans")
+RENDER_API_URL = "https://medical-ai-chatbot-9nsp.onrender.com/chat"
+WEBHOOK_URL = "https://telebot-5i34.onrender.com/webhook"
 PORT = int(os.environ.get("PORT", 5000))
 
 # Global variables
@@ -96,17 +96,26 @@ async def handle_message(update: Update, context):
         logger.info(f"📝 Processing message from user {user_id} (@{username}): {message[:50]}...")
 
         # Send typing action
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+        try:
+            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+        except Exception as typing_error:
+            logger.warning(f"⚠️ Could not send typing action: {typing_error}")
 
         payload = {"message": message, "history": history}
+        logger.info(f"📤 Sending payload to API: {json.dumps(payload, indent=2)}")
 
         # Make API request with timeout
         try:
+            logger.info(f"🔄 Making API request to: {RENDER_API_URL}")
             response = requests.post(RENDER_API_URL, json=payload, timeout=30)
 
+            logger.info(f"📨 API Response - Status: {response.status_code}")
+            logger.info(f"📨 API Response - Headers: {dict(response.headers)}")
+            logger.info(f"📨 API Response - Content: {response.text[:500]}...")
+
             if response.status_code != 200:
-                logger.warning(f"API returned status {response.status_code}")
-                await update.message.reply_text("⚠️ Sorry, the medical service is temporarily unavailable.")
+                logger.error(f"❌ API returned status {response.status_code}: {response.text}")
+                await update.message.reply_text(f"⚠️ API Error: Status {response.status_code}. Please try again.")
                 return
 
         except requests.exceptions.Timeout:
@@ -122,14 +131,18 @@ async def handle_message(update: Update, context):
         # Parse response
         try:
             data = response.json()
-            logger.info(f"📊 API response received for user {user_id}")
-        except json.JSONDecodeError:
-            logger.error(f"❌ Invalid JSON response")
+            logger.info(f"📊 Parsed API response keys: {list(data.keys())}")
+            logger.info(f"📊 Full API response: {json.dumps(data, indent=2)}")
+        except json.JSONDecodeError as json_error:
+            logger.error(f"❌ Invalid JSON response: {json_error}")
+            logger.error(f"❌ Raw response: {response.text}")
             await update.message.reply_text("⚠️ Invalid response received. Please try again.")
             return
 
         # Build response text
         response_text = data.get('response', 'No response available')
+        logger.info(f"📝 Building response text. Main response: {response_text[:100]}...")
+
         text = f"🧠 {response_text}\n\n"
 
         # Add additional information
@@ -150,6 +163,8 @@ async def handle_message(update: Update, context):
         if data.get("Disclaimer"):
             text += f"🧾 *Disclaimer:*\n{data['Disclaimer']}"
 
+        logger.info(f"📝 Final text length: {len(text)} characters")
+
         # Update conversation history
         history.append({"role": "user", "parts": [message]})
         history.append({"role": "model", "parts": [response_text]})
@@ -157,6 +172,7 @@ async def handle_message(update: Update, context):
 
         # Send response
         try:
+            logger.info("📤 Attempting to send response...")
             if data.get("needs_follow_up") and data.get("follow_up_options"):
                 keyboard = [[InlineKeyboardButton(opt, callback_data=opt)]
                             for opt in data["follow_up_options"]]
@@ -164,10 +180,19 @@ async def handle_message(update: Update, context):
                 await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
             else:
                 await update.message.reply_text(text, parse_mode="Markdown")
+
+            logger.info("✅ Response sent successfully")
+
         except Exception as send_error:
             logger.error(f"❌ Error sending formatted message: {send_error}")
             # Try sending without markdown
-            await update.message.reply_text(text.replace("*", ""))
+            try:
+                plain_text = text.replace("*", "").replace("_", "")
+                await update.message.reply_text(plain_text)
+                logger.info("✅ Plain text response sent successfully")
+            except Exception as plain_error:
+                logger.error(f"❌ Error sending plain text: {plain_error}")
+                await update.message.reply_text("⚠️ Response received but couldn't format it properly.")
 
         # Send images if available
         if data.get("image_urls"):
@@ -181,8 +206,12 @@ async def handle_message(update: Update, context):
 
     except Exception as e:
         logger.error(f"❌ Unexpected error in handle_message: {e}")
+        logger.error(f"❌ Error type: {type(e).__name__}")
+        logger.error(f"❌ Error details: {str(e)}")
+        import traceback
+        logger.error(f"❌ Full traceback: {traceback.format_exc()}")
         try:
-            await update.message.reply_text("⚠️ Something went wrong. Please try again.")
+            await update.message.reply_text(f"⚠️ Error: {str(e)[:100]}... Please try again.")
         except:
             pass
 
@@ -230,6 +259,25 @@ def health_check():
         "api_connection": "✅ connected" if api_status else "❌ disconnected",
         "timestamp": datetime.now().isoformat()
     })
+
+
+@app.route('/debug-api')
+def debug_api():
+    try:
+        test_payload = {"message": "I have a headache", "history": []}
+        response = requests.post(RENDER_API_URL, json=test_payload, timeout=30)
+
+        return jsonify({
+            "status_code": response.status_code,
+            "headers": dict(response.headers),
+            "response_text": response.text,
+            "api_url": RENDER_API_URL
+        })
+    except Exception as e:
+        return jsonify({
+            "error": str(e),
+            "api_url": RENDER_API_URL
+        }), 500
 
 
 @app.route('/webhook', methods=['POST'])
