@@ -1,17 +1,14 @@
 from flask import Flask, request, jsonify
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application, CommandHandler, MessageHandler, CallbackQueryHandler,
-    ContextTypes, filters
-)
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 import requests
 import os
-import nest_asyncio
 import asyncio
-from threading import Thread
 import logging
 import json
 from datetime import datetime
+from threading import Thread
+import time
 
 # Enable logging
 logging.basicConfig(
@@ -20,16 +17,27 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Token and Endpoints
-TOKEN = "7843180063:AAFZFcKj-3QgxqQ_e97yKxfETK6CfCZ7ans"
+# Configuration
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7843180063:AAFZFcKj-3QgxqQ_e97yKxfETK6CfCZ7ans")
 RENDER_API_URL = "https://medical-ai-chatbot-9nsp.onrender.com/chat"
 WEBHOOK_URL = "https://telebot-5i34.onrender.com/webhook"
+PORT = int(os.environ.get("PORT", 5000))
 
-# Flask App + Telegram App
+# Global variables
 app = Flask(__name__)
-nest_asyncio.apply()
-telegram_app = Application.builder().token(TOKEN).build()
 user_histories = {}
+telegram_app = None
+
+
+# Initialize Telegram Application
+def create_telegram_app():
+    try:
+        application = Application.builder().token(TOKEN).build()
+        logger.info("✅ Telegram application created successfully")
+        return application
+    except Exception as e:
+        logger.error(f"❌ Failed to create Telegram application: {e}")
+        raise
 
 
 # Test API connectivity
@@ -41,15 +49,15 @@ def test_api_connection():
             logger.info("✅ API connection test successful")
             return True
         else:
-            logger.error(f"❌ API test failed with status {response.status_code}")
+            logger.warning(f"⚠️ API test returned status {response.status_code}")
             return False
     except Exception as e:
         logger.error(f"❌ API connection test failed: {e}")
         return False
 
 
-# /start command
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# /start command handler
+async def start_command(update: Update, context):
     try:
         user_id = update.effective_user.id
         username = update.effective_user.username or "Unknown"
@@ -68,8 +76,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 
-# Handle user text
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Test command handler
+async def test_command(update: Update, context):
+    try:
+        await update.message.reply_text("✅ Bot is working! Webhook is receiving messages.")
+        logger.info(f"✅ Test command executed for user {update.effective_user.id}")
+    except Exception as e:
+        logger.error(f"❌ Error in test command: {e}")
+
+
+# Message handler
+async def handle_message(update: Update, context):
     try:
         user_id = update.effective_user.id
         username = update.effective_user.username or "Unknown"
@@ -78,62 +95,44 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         logger.info(f"📝 Processing message from user {user_id} (@{username}): {message[:50]}...")
 
-        # Show typing indicator
+        # Send typing action
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
         payload = {"message": message, "history": history}
 
-        # Make API request with retry logic
-        max_retries = 2
-        for attempt in range(max_retries):
-            try:
-                logger.info(f"🔄 API request attempt {attempt + 1}/{max_retries}")
-                response = requests.post(RENDER_API_URL, json=payload, timeout=30)
+        # Make API request with timeout
+        try:
+            response = requests.post(RENDER_API_URL, json=payload, timeout=30)
 
-                if response.status_code == 200:
-                    break
-                else:
-                    logger.warning(f"API returned status {response.status_code}, response: {response.text}")
-                    if attempt == max_retries - 1:
-                        await update.message.reply_text(
-                            "⚠️ Sorry, the medical service is temporarily unavailable. Please try again later."
-                        )
-                        return
+            if response.status_code != 200:
+                logger.warning(f"API returned status {response.status_code}")
+                await update.message.reply_text("⚠️ Sorry, the medical service is temporarily unavailable.")
+                return
 
-            except requests.exceptions.Timeout:
-                logger.error(f"⏱️ API request timed out (attempt {attempt + 1})")
-                if attempt == max_retries - 1:
-                    await update.message.reply_text(
-                        "⚠️ The request is taking too long. Please try again with a shorter message."
-                    )
-                    return
+        except requests.exceptions.Timeout:
+            logger.error("⏱️ API request timed out")
+            await update.message.reply_text("⚠️ Request timed out. Please try again.")
+            return
 
-            except requests.exceptions.RequestException as e:
-                logger.error(f"🌐 Network error (attempt {attempt + 1}): {e}")
-                if attempt == max_retries - 1:
-                    await update.message.reply_text(
-                        "⚠️ Network error. Please check your connection and try again."
-                    )
-                    return
-
-            # Wait before retry
-            if attempt < max_retries - 1:
-                await asyncio.sleep(2)
+        except requests.exceptions.RequestException as e:
+            logger.error(f"🌐 Network error: {e}")
+            await update.message.reply_text("⚠️ Network error. Please try again.")
+            return
 
         # Parse response
         try:
             data = response.json()
             logger.info(f"📊 API response received for user {user_id}")
         except json.JSONDecodeError:
-            logger.error(f"❌ Invalid JSON response: {response.text}")
-            await update.message.reply_text("⚠️ Sorry, received invalid response. Please try again.")
+            logger.error(f"❌ Invalid JSON response")
+            await update.message.reply_text("⚠️ Invalid response received. Please try again.")
             return
 
         # Build response text
         response_text = data.get('response', 'No response available')
         text = f"🧠 {response_text}\n\n"
 
-        # Add additional information if available
+        # Add additional information
         if data.get("Symptoms") and data['Symptoms'] != ".":
             text += f"🩺 *Symptoms:* {data['Symptoms']}\n\n"
         if data.get("Remedies"):
@@ -156,14 +155,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         history.append({"role": "model", "parts": [response_text]})
         user_histories[user_id] = history
 
-        # Send response with buttons (if any)
-        if data.get("needs_follow_up") and data.get("follow_up_options"):
-            keyboard = [[InlineKeyboardButton(opt, callback_data=opt)]
-                        for opt in data["follow_up_options"]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
-        else:
-            await update.message.reply_text(text, parse_mode="Markdown")
+        # Send response
+        try:
+            if data.get("needs_follow_up") and data.get("follow_up_options"):
+                keyboard = [[InlineKeyboardButton(opt, callback_data=opt)]
+                            for opt in data["follow_up_options"]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
+            else:
+                await update.message.reply_text(text, parse_mode="Markdown")
+        except Exception as send_error:
+            logger.error(f"❌ Error sending formatted message: {send_error}")
+            # Try sending without markdown
+            await update.message.reply_text(text.replace("*", ""))
 
         # Send images if available
         if data.get("image_urls"):
@@ -171,50 +175,44 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 try:
                     await update.message.reply_photo(url)
                 except Exception as img_error:
-                    logger.error(f"🖼️ Failed to send image {url}: {img_error}")
+                    logger.error(f"🖼️ Failed to send image: {img_error}")
 
         logger.info(f"✅ Message processed successfully for user {user_id}")
 
     except Exception as e:
         logger.error(f"❌ Unexpected error in handle_message: {e}")
         try:
-            await update.message.reply_text("⚠️ Sorry, something went wrong. Please try again.")
+            await update.message.reply_text("⚠️ Something went wrong. Please try again.")
         except:
             pass
 
 
-# Handle button clicks
-async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Button handler
+async def handle_button(update: Update, context):
     try:
         query = update.callback_query
         await query.answer()
 
-        # Create a message-like object for the button click
-        button_message = query.message
-        button_message.text = query.data
+        # Create a new message object
+        message = query.message
+        message.text = query.data
 
-        # Create new update object
+        # Create new update for processing
         new_update = Update(
             update_id=update.update_id,
-            message=button_message,
+            message=message,
             effective_user=update.effective_user,
             effective_chat=update.effective_chat
         )
 
         await handle_message(new_update, context)
-        logger.info(f"🔘 Button click processed: {query.data}")
+        logger.info(f"🔘 Button processed: {query.data}")
 
     except Exception as e:
-        logger.error(f"❌ Error in handle_button: {e}")
+        logger.error(f"❌ Error in button handler: {e}")
 
 
-# Register Telegram handlers
-telegram_app.add_handler(CommandHandler("start", start))
-telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-telegram_app.add_handler(CallbackQueryHandler(handle_button))
-
-
-# Flask Routes
+# Flask routes
 @app.route('/')
 def home():
     return jsonify({
@@ -240,17 +238,16 @@ def webhook():
         json_data = request.get_json(force=True)
 
         if not json_data:
-            logger.warning("⚠️ Received empty webhook data")
+            logger.warning("⚠️ Empty webhook data received")
             return "ok"
 
-        # Log webhook data (remove sensitive info)
-        safe_data = {k: v for k, v in json_data.items() if k != 'message' or not isinstance(v, dict)}
-        logger.info(f"📨 Webhook received: {safe_data}")
+        logger.info("📨 Webhook data received")
 
+        # Process the update
         update = Update.de_json(json_data, telegram_app.bot)
 
-        # Handle async processing
-        def run_async():
+        # Run in thread to avoid blocking
+        def process_update():
             try:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
@@ -259,27 +256,34 @@ def webhook():
             except Exception as e:
                 logger.error(f"❌ Error processing update: {e}")
 
-        thread = Thread(target=run_async)
+        thread = Thread(target=process_update)
         thread.daemon = True
         thread.start()
 
         return "ok"
 
     except Exception as e:
-        logger.error(f"❌ Error in webhook: {e}")
+        logger.error(f"❌ Webhook error: {e}")
         return "error", 500
 
 
-# Main function
-async def main():
+# Setup function
+async def setup_bot():
+    global telegram_app
+
     try:
-        logger.info("🚀 Starting MedAssist Telegram Bot...")
+        logger.info("🚀 Setting up MedAssist Telegram Bot...")
 
-        # Test API connection
-        if not test_api_connection():
-            logger.warning("⚠️ API connection test failed, but continuing...")
+        # Create telegram app
+        telegram_app = create_telegram_app()
 
-        # Initialize bot
+        # Add handlers
+        telegram_app.add_handler(CommandHandler("start", start_command))
+        telegram_app.add_handler(CommandHandler("test", test_command))
+        telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        telegram_app.add_handler(CallbackQueryHandler(handle_button))
+
+        # Initialize
         await telegram_app.initialize()
 
         # Set webhook
@@ -288,27 +292,31 @@ async def main():
 
         logger.info(f"🔗 Webhook set to: {WEBHOOK_URL}")
 
-        # Start Flask server
-        port = int(os.environ.get("PORT", 5000))
-        flask_thread = Thread(target=lambda: app.run(host="0.0.0.0", port=port, debug=False))
-        flask_thread.daemon = True
-        flask_thread.start()
-
-        logger.info(f"🌐 Flask server started on port {port}")
-
-        # Start telegram app
+        # Start the app
         await telegram_app.start()
-        logger.info("✅ Telegram bot started successfully")
-
-        # Keep alive
-        while True:
-            await asyncio.sleep(60)
-            logger.info("💓 Bot is alive")
+        logger.info("✅ Telegram bot setup completed")
 
     except Exception as e:
-        logger.error(f"❌ Fatal error in main: {e}")
+        logger.error(f"❌ Setup failed: {e}")
+        raise
+
+
+# Main function
+def main():
+    try:
+        # Setup bot
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(setup_bot())
+
+        # Start Flask server
+        logger.info(f"🌐 Starting Flask server on port {PORT}")
+        app.run(host="0.0.0.0", port=PORT, debug=False)
+
+    except Exception as e:
+        logger.error(f"❌ Fatal error: {e}")
         raise
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()
