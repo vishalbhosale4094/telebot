@@ -8,29 +8,25 @@ import requests
 import os
 import nest_asyncio
 import asyncio
+from threading import Thread
 
-# 🔐 Bot Token and URLs
+# Telegram token and backend URLs
 TOKEN = "7843180063:AAFZFcKj-3QgxqQ_e97yKxfETK6CfCZ7ans"
-RENDER_API_URL = "https://medical-ai-chatbot-9nsp.onrender.com"
-WEBHOOK_URL = "https://telebot-5i34.onrender.com"
+RENDER_API_URL = "https://medical-ai-chatbot-9nsp.onrender.com/chat"
+WEBHOOK_URL = "https://telebot-5i34.onrender.com/webhook"
 
-r = requests.get(f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={WEBHOOK_URL}")
-print(r.json())
-
-
-# 🔧 Setup
-nest_asyncio.apply()
+# Flask + Telegram setup
 app = Flask(__name__)
-user_histories = {}
+nest_asyncio.apply()
 telegram_app = Application.builder().token(TOKEN).build()
+user_histories = {}
 
-# 🎯 /start Command
+# Command: /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    user_histories[user_id] = []
+    user_histories[update.effective_user.id] = []
     await update.message.reply_text("👋 Welcome to MedAssist! Please describe your symptoms.")
 
-# 📩 Handle Message
+# Handle messages
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     message = update.message.text
@@ -40,8 +36,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         res = requests.post(RENDER_API_URL, json=payload)
         data = res.json()
-
         text = f"🧠 {data.get('response', '')}\n\n"
+
         if data.get("Symptoms") and data['Symptoms'] != ".":
             text += f"🩺 *Symptoms:* {data['Symptoms']}\n\n"
         if data.get("Remedies"):
@@ -61,8 +57,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if data.get("needs_follow_up") and data.get("follow_up_options"):
             keyboard = [[InlineKeyboardButton(opt, callback_data=opt)] for opt in data["follow_up_options"]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
+            await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         else:
             await update.message.reply_text(text, parse_mode="Markdown")
 
@@ -71,9 +66,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_photo(url)
 
     except Exception as e:
-        await update.message.reply_text("⚠️ Sorry, something went wrong. Please try again.")
+        await update.message.reply_text("⚠️ Sorry, something went wrong.")
 
-# 🔘 Handle Button Callback
+# Follow-up buttons
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -81,41 +76,31 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     update.message.text = query.data
     await handle_message(update, context)
 
-# ⏯️ Register Handlers
+# Register handlers
 telegram_app.add_handler(CommandHandler("start", start))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 telegram_app.add_handler(CallbackQueryHandler(handle_button))
 
-# 🌐 Flask Webhook Routes
+# Flask routes
 @app.route('/')
-def home():
-    return "✅ MedAssist Bot Server Running (Webhook Mode)"
+def index():
+    return "✅ Telegram Bot Webhook Running"
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    data = request.get_json(force=True)
-    print("📨 Webhook data received:", data)
-
-    update = Update.de_json(data, telegram_app.bot)
-    asyncio.get_event_loop().create_task(telegram_app.process_update(update))
+    update = Update.de_json(request.get_json(force=True), telegram_app.bot)
+    telegram_app.update_queue.put(update)
     return "ok"
 
-
-
-# 🧠 Main Async Runner
+# Async runner
 async def main():
     await telegram_app.initialize()
     await telegram_app.bot.delete_webhook()
     await telegram_app.bot.set_webhook(WEBHOOK_URL)
-    await telegram_app.start()
 
-    # Run Flask in background
-    from threading import Thread
     Thread(target=lambda: app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))).start()
-
-    # Run bot until manually stopped
-    await telegram_app.updater.start_polling()  # << NOT start_webhook
-
+    await telegram_app.start()
+    await telegram_app.updater.start_polling()
 
 if __name__ == '__main__':
     asyncio.run(main())
