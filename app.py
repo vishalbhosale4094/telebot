@@ -11,8 +11,12 @@ import asyncio
 
 # 🔐 Bot Token and URLs
 TOKEN = "7843180063:AAFZFcKj-3QgxqQ_e97yKxfETK6CfCZ7ans"
-RENDER_API_URL = "https://medical-ai-chatbot-9nsp.onrender.com/chat"
-WEBHOOK_URL = "https://telebot-5i34.onrender.com/webhook"
+RENDER_API_URL = "https://medical-ai-chatbot-9nsp.onrender.com"
+WEBHOOK_URL = "https://telebot-5i34.onrender.com"
+
+r = requests.get(f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={WEBHOOK_URL}")
+print(r.json())
+
 
 # 🔧 Setup
 nest_asyncio.apply()
@@ -89,9 +93,19 @@ def home():
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    update = Update.de_json(request.get_json(force=True), telegram_app.bot)
-    telegram_app.update_queue.put(update)
-    return "ok"
+    try:
+        data = request.get_json(force=True)
+        print("✅ Webhook triggered with data:", data)
+
+        update = Update.de_json(data, telegram_app.bot)
+
+        # Use async to call the telegram_app handler
+        asyncio.get_event_loop().create_task(telegram_app.process_update(update))
+        return "ok"
+    except Exception as e:
+        print("❌ Error in /webhook:", e)
+        return "error", 500
+
 
 # 🧠 Main Async Runner
 async def main():
