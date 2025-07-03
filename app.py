@@ -37,7 +37,7 @@ def handle_chat():
 # Your Telegram Bot Token
 BOT_TOKEN = "7843180063:AAFZFcKj-3QgxqQ_e97yKxfETK6CfCZ7ans"  # ✅ should match your BotFather token
   # <-- Replace with your actual bot token
-RENDER_API_URL = "https://medical-ai-chatbot-9nsp.onrender.com/chat"
+RENDER_API_URL = "https://medical-ai-chatbot-9nsp.onrender.com"
 
 
 # In-memory user session history
@@ -115,9 +115,7 @@ def run_telegram_bot():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(handle_button))
-
-    # ✅ THIS IS WHERE YOU ADD IT
-    app.run_polling()
+    app.run_polling()  # <- THIS LINE IS REQUIRED
 
 
 # Start Flask and Telegram in parallel
