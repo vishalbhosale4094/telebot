@@ -228,10 +228,21 @@ async def setup_bot():
     logger.info("✅ Telegram bot is running.")
 
 def main():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(setup_bot())
-    app.run(host="0.0.0.0", port=PORT)
+    async def runner():
+        await setup_bot()
+
+        # Start Flask in background thread (non-blocking)
+        def run_flask():
+            logger.info(f"🌐 Starting Flask server on port {PORT}")
+            app.run(host="0.0.0.0", port=PORT, use_reloader=False)
+
+        flask_thread = Thread(target=run_flask)
+        flask_thread.start()
+
+    try:
+        asyncio.run(runner())
+    except Exception as e:
+        logger.error(f"❌ Fatal error: {e}")
 
 if __name__ == '__main__':
     main()
