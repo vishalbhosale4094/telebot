@@ -108,7 +108,7 @@ def generate_medical_response(user_message):
                 "it's important to consult with a healthcare professional for proper diagnosis and treatment.\n\n"
                 f"For comprehensive medical AI assistance, visit: {WEBSITE_FRONTEND_URL}\n\n"
                 "Try asking about specific symptoms like 'headache', 'fever', or 'cold' for basic information"
-                "For advanced medical AI assistance, visit: https: // medical-ai-chatbot-9nsp.onrender.com.")
+                f"For advanced medical AI assistance, visit: {WEBSITE_FRONTEND_URL}\n\n.")
 
     # Check for medication questions
     if any(word in message_lower for word in ["medicine", "medication", "drug", "pill", "tablet"]):
