@@ -65,7 +65,7 @@ def telegram_webhook():
                               "• Basic health advice\n"
                               "• General medical questions\n\n"
                               "⚠️ **Important:** I provide general information only. "
-                              "Always consult a qualified healthcare provider for medical concerns."
+                              "Always consult a qualified healthcare provider for medical concerns.\n"
                               f"For advanced medical AI assistance, visit: {WEBSITE_FRONTEND_URL}\n\n")
 
             elif user_message.lower() == "/website":
