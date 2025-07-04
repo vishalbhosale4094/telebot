@@ -22,7 +22,7 @@ MEDICAL_AI_FRONTEND_URL = "https://medical-ai-chatbot-9nsp.onrender.com"
 TELEGRAM_BOT_BACKEND_URL = "https://telebot-5i34.onrender.com"
 
 # Webhook secret for security
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "telegram-bot-secret-123")
+WEBHOOK_SECRET = "https://telebot-5i34.onrender.com/set-webhook?url=https://telebot-5i34.onrender.com/telegram-webhook"
 
 # Medical responses for the Telegram bot
 MEDICAL_RESPONSES = {
