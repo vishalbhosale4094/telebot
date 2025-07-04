@@ -1,7 +1,5 @@
 import os
 from flask import Flask, request, jsonify
-from dotenv import load_dotenv
-load_dotenv()
 import requests
 import telegram
 import logging
