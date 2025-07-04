@@ -1,5 +1,7 @@
 import os
 from flask import Flask, request, jsonify
+from dotenv import load_dotenv
+load_dotenv()
 import requests
 import telegram
 import logging
@@ -12,9 +14,15 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Telegram Bot Token
+# Telegram Bot Token - Use environment variable for security
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "7843180063:AAFZFcKj-3QgxqQ_e97yKxfETK6CfCZ7ans")
+if not BOT_TOKEN:
+    raise ValueError("TELEGRAM_BOT_TOKEN environment variable not set!")
+
 bot = telegram.Bot(token=BOT_TOKEN)
+
+# Webhook URL for Render deployment
+WEBHOOK_URL = "https://telebot-5i34.onrender.com"
 
 # Your medical AI website (frontend)
 WEBSITE_FRONTEND_URL = "https://medical-ai-chatbot-9nsp.onrender.com"
@@ -34,6 +42,9 @@ MEDICAL_RESPONSES = {
     "pain": "🏥 General pain management:\n• Rest the affected area\n• Apply ice or heat as appropriate\n• Over-the-counter pain relievers\n• Gentle stretching\n• Stay hydrated\n\n⚠️ Consult a healthcare provider for severe or chronic pain."
 }
 
+# Webhook secret for security (optional but recommended)
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "your-secret-key-here")
+
 
 @app.route("/")
 def home():
@@ -43,6 +54,11 @@ def home():
 @app.route("/telegram-webhook", methods=["POST"])
 def telegram_webhook():
     try:
+        # Optional: Verify webhook secret
+        if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != WEBHOOK_SECRET:
+            logger.warning("⚠️ Invalid webhook secret")
+            return jsonify({"status": "unauthorized"}), 401
+
         data = request.get_json()
         logger.info(f"✅ Received webhook data: {data}")
 
@@ -53,12 +69,13 @@ def telegram_webhook():
         if "message" in data and "text" in data["message"]:
             chat_id = data["message"]["chat"]["id"]
             user_message = data["message"]["text"]
+            user_name = data["message"]["from"].get("first_name", "User")
 
-            logger.info(f"📝 Processing message from {chat_id}: {user_message}")
+            logger.info(f"📝 Processing message from {user_name} ({chat_id}): {user_message}")
 
             # Handle special commands
             if user_message.lower() in ["/start", "/help"]:
-                reply_text = ("🏥 **MedAssist AI Bot**\n\n"
+                reply_text = (f"🏥 **Welcome {user_name}! MedAssist AI Bot**\n\n"
                               "I can help with basic medical information and health questions.\n\n"
                               "**Try asking about:**\n"
                               "• Common symptoms (headache, fever, cold)\n"
@@ -70,9 +87,16 @@ def telegram_webhook():
             elif user_message.lower() == "/website":
                 reply_text = f"🌐 Visit our full medical AI website: {WEBSITE_FRONTEND_URL}"
 
+            elif user_message.lower() == "/about":
+                reply_text = ("ℹ️ **About MedAssist AI Bot**\n\n"
+                              "This bot provides basic medical information and health tips. "
+                              "It's designed to offer general guidance but should never replace "
+                              "professional medical advice.\n\n"
+                              "Created with ❤️ for health awareness.")
+
             else:
                 # Generate medical response
-                reply_text = generate_medical_response(user_message)
+                reply_text = generate_medical_response(user_message, user_name)
 
             # Send reply to Telegram user
             try:
@@ -81,7 +105,10 @@ def telegram_webhook():
             except telegram.error.TelegramError as e:
                 logger.error(f"❌ Telegram API error: {e}")
                 # Try without markdown if parsing fails
-                bot.send_message(chat_id=chat_id, text=reply_text)
+                try:
+                    bot.send_message(chat_id=chat_id, text=reply_text)
+                except Exception as e2:
+                    logger.error(f"❌ Failed to send message even without markdown: {e2}")
 
         else:
             logger.info("ℹ️ Received non-text message or different update type")
@@ -93,25 +120,26 @@ def telegram_webhook():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-def generate_medical_response(user_message):
+def generate_medical_response(user_message, user_name=""):
     """Generate medical response based on user message"""
     message_lower = user_message.lower()
 
     # Check for specific medical topics
     for topic, response in MEDICAL_RESPONSES.items():
         if topic in message_lower:
-            return response
+            return f"Hi {user_name}! 👋\n\n{response}"
 
     # Check for common medical keywords
     if any(word in message_lower for word in ["sick", "ill", "hurt", "pain", "ache", "symptom"]):
-        return ("🏥 I understand you have a health concern. While I can provide general information, "
+        return (f"🏥 Hi {user_name}, I understand you have a health concern. "
+                "While I can provide general information, "
                 "it's important to consult with a healthcare professional for proper diagnosis and treatment.\n\n"
                 f"For comprehensive medical AI assistance, visit: {WEBSITE_FRONTEND_URL}\n\n"
                 "Try asking about specific symptoms like 'headache', 'fever', or 'cold' for basic information.")
 
     # Check for medication questions
     if any(word in message_lower for word in ["medicine", "medication", "drug", "pill", "tablet"]):
-        return ("💊 For medication information:\n"
+        return ("💊 **Medication Information:**\n"
                 "• Always consult a pharmacist or doctor\n"
                 "• Read medication labels carefully\n"
                 "• Don't mix medications without professional advice\n"
@@ -121,15 +149,21 @@ def generate_medical_response(user_message):
     # Check for emergency situations
     if any(word in message_lower for word in
            ["emergency", "urgent", "severe", "bleeding", "chest pain", "difficulty breathing"]):
-        return ("🚨 **EMERGENCY SITUATIONS**\n\n"
+        return ("🚨 **MEDICAL EMERGENCY**\n\n"
                 "If you're experiencing a medical emergency:\n"
-                "• Call emergency services immediately\n"
+                "• Call emergency services immediately (911/102/108)\n"
                 "• Go to the nearest emergency room\n"
                 "• Don't delay seeking professional help\n\n"
                 "This chatbot cannot handle emergencies!")
 
+    # Greetings
+    if any(word in message_lower for word in ["hello", "hi", "hey", "good morning", "good evening"]):
+        return (f"👋 Hello {user_name}! Welcome to MedAssist AI Bot!\n\n"
+                "I'm here to help with basic medical information. "
+                "What health topic would you like to know about?")
+
     # Generic health response
-    return ("🏥 **MedAssist AI**\n\n"
+    return (f"🏥 **Hi {user_name}! MedAssist AI**\n\n"
             "I can help with general health information. Try asking about:\n"
             "• Common symptoms (headache, fever, cold, cough)\n"
             "• Basic health advice\n"
@@ -138,76 +172,24 @@ def generate_medical_response(user_message):
             "⚠️ Always consult healthcare professionals for medical concerns.")
 
 
-# API endpoint to manually trigger backend connection test
-@app.route("/find-backend-api", methods=["GET"])
-def find_backend_api():
-    """Try to find the actual API endpoint by inspecting the website"""
+@app.route("/setup-webhook", methods=["GET"])
+def setup_webhook():
+    """Automatically set up webhook for Render deployment"""
     try:
-        # Get the main page
-        response = requests.get(WEBSITE_FRONTEND_URL, timeout=10)
+        webhook_url = f"{WEBHOOK_URL}/telegram-webhook"
 
-        if response.status_code == 200:
-            # Look for common API patterns in the HTML/JS
-            content = response.text.lower()
-
-            possible_apis = []
-
-            # Check for common API patterns
-            if 'api/' in content:
-                possible_apis.append("Found 'api/' in content")
-            if 'chat' in content:
-                possible_apis.append("Found 'chat' in content")
-            if 'webhook' in content:
-                possible_apis.append("Found 'webhook' in content")
-            if 'openai' in content:
-                possible_apis.append("Uses OpenAI API")
-            if 'claude' in content:
-                possible_apis.append("Uses Claude API")
-
-            # Try to find script files that might contain API endpoints
-            import re
-            script_matches = re.findall(r'src="([^"]*\.js)"', content)
-
-            result = {
-                "status": "success",
-                "website_accessible": True,
-                "possible_api_indicators": possible_apis,
-                "script_files": script_matches[:5],  # First 5 script files
-                "recommendation": "Your website appears to be a frontend interface. You may need to create a separate API endpoint for the Telegram bot, or check if your backend has a different API URL."
-            }
-
-        else:
-            result = {
-                "status": "error",
-                "website_accessible": False,
-                "error": f"Website returned status {response.status_code}"
-            }
-
-        return jsonify(result)
-
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message": str(e)
-        })
-
-
-@app.route("/set-webhook", methods=["GET", "POST"])
-def set_webhook():
-    """Set up webhook with Telegram"""
-    try:
-        webhook_url = request.args.get('url') or (request.json.get('url') if request.is_json else None)
-
-        if not webhook_url:
-            return jsonify({
-                "error": "Please provide webhook URL",
-                "example": "/set-webhook?url=https://your-domain.com/telegram-webhook"
-            }), 400
-
-        result = bot.set_webhook(url=webhook_url)
+        # Set webhook with secret token for security
+        result = bot.set_webhook(
+            url=webhook_url,
+            secret_token=WEBHOOK_SECRET
+        )
 
         if result:
-            return jsonify({"status": "success", "message": f"Webhook set to {webhook_url}"})
+            return jsonify({
+                "status": "success",
+                "message": f"Webhook automatically set to {webhook_url}",
+                "next_step": "Your bot is now ready! Find it on Telegram and send /start"
+            })
         else:
             return jsonify({"status": "error", "message": "Failed to set webhook"}), 500
 
@@ -231,7 +213,22 @@ def webhook_info():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route("/test-bot", methods=["GET"])
+def test_bot():
+    """Test if bot is working"""
+    try:
+        bot_info = bot.get_me()
+        return jsonify({
+            "status": "success",
+            "bot_name": bot_info.first_name,
+            "bot_username": bot_info.username,
+            "bot_id": bot_info.id
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 if __name__ == '__main__':
     logger.info("🚀 Starting Medical AI Telegram Bot...")
     port = int(os.environ.get('PORT', 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=port, debug=False)  # Set debug=False for production
