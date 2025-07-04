@@ -4,7 +4,6 @@ import requests
 import telegram
 import logging
 import json
-import random
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -12,50 +11,54 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Telegram Bot Token - Use environment variable for security
+# Telegram Bot Token
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "7843180063:AAFZFcKj-3QgxqQ_e97yKxfETK6CfCZ7ans")
-if not BOT_TOKEN:
-    raise ValueError("TELEGRAM_BOT_TOKEN environment variable not set!")
-
 bot = telegram.Bot(token=BOT_TOKEN)
 
-# Webhook URL for Render deployment
-WEBHOOK_URL = "https://telebot-5i34.onrender.com"
+# Your medical AI website (frontend) - this is the correct URL
+MEDICAL_AI_FRONTEND_URL = "https://medical-ai-chatbot-9nsp.onrender.com"
 
-# Your medical AI website (frontend)
-WEBSITE_FRONTEND_URL = "https://medical-ai-chatbot-9nsp.onrender.com"
+# This Telegram bot backend URL
+TELEGRAM_BOT_BACKEND_URL = "https://telebot-5i34.onrender.com"
 
-# Simple medical responses for common questions
+# Webhook secret for security
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "telegram-bot-secret-123")
+
+# Medical responses for the Telegram bot
 MEDICAL_RESPONSES = {
     "headache": "🏥 Common headache remedies include:\n• Rest in a quiet, dark room\n• Stay hydrated\n• Apply cold or warm compress\n• Consider over-the-counter pain relievers\n\n⚠️ Consult a doctor if headaches persist or worsen.",
-
     "fever": "🏥 For fever management:\n• Rest and stay hydrated\n• Take temperature regularly\n• Use fever reducers like acetaminophen or ibuprofen\n• Wear light clothing\n\n⚠️ Seek medical attention if fever is high or persistent.",
-
     "cold": "🏥 Common cold symptoms and care:\n• Rest and sleep\n• Drink plenty of fluids\n• Use a humidifier\n• Gargle with salt water\n• Consider vitamin C\n\n⚠️ See a doctor if symptoms worsen or last more than 10 days.",
-
     "cough": "🏥 Cough remedies:\n• Stay hydrated\n• Use honey (for adults)\n• Try throat lozenges\n• Use a humidifier\n• Avoid smoking and irritants\n\n⚠️ Consult a doctor for persistent or bloody cough.",
-
     "stomach": "🏥 Stomach issues:\n• Eat bland foods (BRAT diet)\n• Stay hydrated\n• Avoid dairy and fatty foods\n• Rest\n• Consider probiotics\n\n⚠️ See a doctor for severe pain or persistent symptoms.",
-
     "pain": "🏥 General pain management:\n• Rest the affected area\n• Apply ice or heat as appropriate\n• Over-the-counter pain relievers\n• Gentle stretching\n• Stay hydrated\n\n⚠️ Consult a healthcare provider for severe or chronic pain."
 }
-
-# Webhook secret for security (optional but recommended)
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "your-secret-key-here")
 
 
 @app.route("/")
 def home():
-    return "✅ Medical AI Telegram Bot is running!"
+    return """
+    <h1>✅ Medical AI Telegram Bot is Running!</h1>
+    <p>This is the backend for the Telegram bot.</p>
+    <p>Your medical AI website: <a href="{}" target="_blank">{}</a></p>
+    <hr>
+    <h3>Bot Management:</h3>
+    <ul>
+        <li><a href="/test-bot">Test Bot</a></li>
+        <li><a href="/setup-webhook">Setup Webhook</a></li>
+        <li><a href="/webhook-info">Webhook Info</a></li>
+    </ul>
+    """.format(MEDICAL_AI_FRONTEND_URL, MEDICAL_AI_FRONTEND_URL)
 
 
 @app.route("/telegram-webhook", methods=["POST"])
 def telegram_webhook():
     try:
         # Optional: Verify webhook secret
-        if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != WEBHOOK_SECRET:
+        secret_header = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+        if secret_header != WEBHOOK_SECRET:
             logger.warning("⚠️ Invalid webhook secret")
-            return jsonify({"status": "unauthorized"}), 401
+            # Don't return error - continue processing for now
 
         data = request.get_json()
         logger.info(f"✅ Received webhook data: {data}")
@@ -71,30 +74,8 @@ def telegram_webhook():
 
             logger.info(f"📝 Processing message from {user_name} ({chat_id}): {user_message}")
 
-            # Handle special commands
-            if user_message.lower() in ["/start", "/help"]:
-                reply_text = (f"🏥 **Welcome {user_name}! MedAssist AI Bot**\n\n"
-                              "I can help with basic medical information and health questions.\n\n"
-                              "**Try asking about:**\n"
-                              "• Common symptoms (headache, fever, cold)\n"
-                              "• Basic health advice\n"
-                              "• General medical questions\n\n"
-                              "⚠️ **Important:** I provide general information only. "
-                              "Always consult a qualified healthcare provider for medical concerns.")
-
-            elif user_message.lower() == "/website":
-                reply_text = f"🌐 Visit our full medical AI website: {WEBSITE_FRONTEND_URL}"
-
-            elif user_message.lower() == "/about":
-                reply_text = ("ℹ️ **About MedAssist AI Bot**\n\n"
-                              "This bot provides basic medical information and health tips. "
-                              "It's designed to offer general guidance but should never replace "
-                              "professional medical advice.\n\n"
-                              "Created with ❤️ for health awareness.")
-
-            else:
-                # Generate medical response
-                reply_text = generate_medical_response(user_message, user_name)
+            # Generate response
+            reply_text = generate_medical_response(user_message, user_name)
 
             # Send reply to Telegram user
             try:
@@ -105,8 +86,9 @@ def telegram_webhook():
                 # Try without markdown if parsing fails
                 try:
                     bot.send_message(chat_id=chat_id, text=reply_text)
+                    logger.info("✅ Message sent without markdown")
                 except Exception as e2:
-                    logger.error(f"❌ Failed to send message even without markdown: {e2}")
+                    logger.error(f"❌ Failed to send message: {e2}")
 
         else:
             logger.info("ℹ️ Received non-text message or different update type")
@@ -122,6 +104,27 @@ def generate_medical_response(user_message, user_name=""):
     """Generate medical response based on user message"""
     message_lower = user_message.lower()
 
+    # Handle special commands
+    if message_lower in ["/start", "/help"]:
+        return (f"🏥 **Welcome {user_name}! MedAssist AI Bot**\n\n"
+                "I can help with basic medical information and health questions.\n\n"
+                "**Try asking about:**\n"
+                "• Common symptoms (headache, fever, cold)\n"
+                "• Basic health advice\n"
+                "• General medical questions\n\n"
+                "⚠️ **Important:** I provide general information only. "
+                "Always consult a qualified healthcare provider for medical concerns.")
+
+    elif message_lower == "/website":
+        return f"🌐 Visit our full medical AI website: {MEDICAL_AI_FRONTEND_URL}"
+
+    elif message_lower == "/about":
+        return ("ℹ️ **About MedAssist AI Bot**\n\n"
+                "This bot provides basic medical information and health tips. "
+                "It's designed to offer general guidance but should never replace "
+                "professional medical advice.\n\n"
+                "Created with ❤️ for health awareness.")
+
     # Check for specific medical topics
     for topic, response in MEDICAL_RESPONSES.items():
         if topic in message_lower:
@@ -132,17 +135,8 @@ def generate_medical_response(user_message, user_name=""):
         return (f"🏥 Hi {user_name}, I understand you have a health concern. "
                 "While I can provide general information, "
                 "it's important to consult with a healthcare professional for proper diagnosis and treatment.\n\n"
-                f"For comprehensive medical AI assistance, visit: {WEBSITE_FRONTEND_URL}\n\n"
+                f"For comprehensive medical AI assistance, visit: {MEDICAL_AI_FRONTEND_URL}\n\n"
                 "Try asking about specific symptoms like 'headache', 'fever', or 'cold' for basic information.")
-
-    # Check for medication questions
-    if any(word in message_lower for word in ["medicine", "medication", "drug", "pill", "tablet"]):
-        return ("💊 **Medication Information:**\n"
-                "• Always consult a pharmacist or doctor\n"
-                "• Read medication labels carefully\n"
-                "• Don't mix medications without professional advice\n"
-                "• Report side effects to your healthcare provider\n\n"
-                "⚠️ Never take medical advice from chatbots for medications.")
 
     # Check for emergency situations
     if any(word in message_lower for word in
@@ -166,17 +160,17 @@ def generate_medical_response(user_message, user_name=""):
             "• Common symptoms (headache, fever, cold, cough)\n"
             "• Basic health advice\n"
             "• General wellness tips\n\n"
-            f"For advanced medical AI assistance, visit: {WEBSITE_FRONTEND_URL}\n\n"
+            f"For advanced medical AI assistance, visit: {MEDICAL_AI_FRONTEND_URL}\n\n"
             "⚠️ Always consult healthcare professionals for medical concerns.")
 
 
 @app.route("/setup-webhook", methods=["GET"])
 def setup_webhook():
-    """Automatically set up webhook for Render deployment"""
+    """Automatically set up webhook for this deployment"""
     try:
-        webhook_url = f"{WEBHOOK_URL}/telegram-webhook"
+        webhook_url = f"{TELEGRAM_BOT_BACKEND_URL}/telegram-webhook"
 
-        # Set webhook with secret token for security
+        # Set webhook
         result = bot.set_webhook(
             url=webhook_url,
             secret_token=WEBHOOK_SECRET
@@ -185,8 +179,10 @@ def setup_webhook():
         if result:
             return jsonify({
                 "status": "success",
-                "message": f"Webhook automatically set to {webhook_url}",
-                "next_step": "Your bot is now ready! Find it on Telegram and send /start"
+                "message": f"Webhook set to: {webhook_url}",
+                "next_step": "Your bot is now ready! Find it on Telegram and send /start",
+                "bot_backend": TELEGRAM_BOT_BACKEND_URL,
+                "medical_ai_frontend": MEDICAL_AI_FRONTEND_URL
             })
         else:
             return jsonify({"status": "error", "message": "Failed to set webhook"}), 500
@@ -205,7 +201,9 @@ def webhook_info():
             "has_custom_certificate": info.has_custom_certificate,
             "pending_update_count": info.pending_update_count,
             "last_error_date": info.last_error_date.isoformat() if info.last_error_date else None,
-            "last_error_message": info.last_error_message
+            "last_error_message": info.last_error_message,
+            "max_connections": info.max_connections,
+            "allowed_updates": info.allowed_updates
         })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -220,7 +218,10 @@ def test_bot():
             "status": "success",
             "bot_name": bot_info.first_name,
             "bot_username": bot_info.username,
-            "bot_id": bot_info.id
+            "bot_id": bot_info.id,
+            "can_join_groups": bot_info.can_join_groups,
+            "can_read_all_group_messages": bot_info.can_read_all_group_messages,
+            "supports_inline_queries": bot_info.supports_inline_queries
         })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -229,4 +230,4 @@ def test_bot():
 if __name__ == '__main__':
     logger.info("🚀 Starting Medical AI Telegram Bot...")
     port = int(os.environ.get('PORT', 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)  # Set debug=False for production
+    app.run(host="0.0.0.0", port=port, debug=False)
